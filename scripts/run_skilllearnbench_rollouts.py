@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import os
 import re
@@ -32,6 +33,7 @@ def main() -> int:
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--max-steps", type=int, default=20)
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--concurrency", type=int, default=1)
     parser.add_argument("--task", action="append", default=None, help="Task id/domain filter; repeatable.")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--python", default=sys.executable, help="Python executable with pytest/test deps.")
@@ -59,53 +61,52 @@ def main() -> int:
         tasks = tasks[: args.limit]
 
     skills = discover_skills(Path(args.skills), no_skill=False)
-    generator = TrajectoryGenerator(
-        args.skills,
-        model=args.model,
-        max_steps=args.max_steps,
-        dry_run=False,
-    )
 
     score_records: list[dict[str, Any]] = []
+    pending: list[tuple[int, dict[str, Any]]] = []
     for index, task in enumerate(tasks, start=1):
-        task_id = task["id"]
-        print(f"[{index}/{len(tasks)}] rollout {task_id}", flush=True)
-        trajectory_path = trajectories_dir / f"{task_id}.jsonl"
-        score_path = output_dir / "scores" / f"{task_id}.json"
-        score_path.parent.mkdir(parents=True, exist_ok=True)
-
+        score_path = output_dir / "scores" / f"{task['id']}.json"
+        trajectory_path = trajectories_dir / f"{task['id']}.jsonl"
         if args.resume and trajectory_path.exists() and score_path.exists():
-            print(f"  resume: skip {task_id}", flush=True)
+            print(f"[{index}/{len(tasks)}] resume: skip {task['id']}", flush=True)
             score_records.append(json.loads(score_path.read_text(encoding="utf-8")))
-            continue
+        else:
+            pending.append((index, task))
 
-        task_skills = generator._skills_for_task(task, skills)
-        trajectory = generator.run_task(task, task_skills)
-        trajectory_path.write_text(
-            json.dumps(trajectory.to_record(), ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-
-        score = score_task(
-            benchmark=benchmark,
-            task=task,
-            artifact_dir=Path(task["artifact_dir"]),
-            python=args.python,
-            output_dir=output_dir,
-        )
-        score["trajectory_path"] = str(trajectory_path)
-        score["skills_used"] = task_skills
-        score["trajectory_final_success"] = trajectory.final_success
-        score["trajectory_steps"] = len(trajectory.steps)
-        score["trajectory_error_count"] = len(trajectory.error_log)
-        score_path.write_text(json.dumps(score, indent=2, ensure_ascii=False), encoding="utf-8")
-        append_jsonl(scores_path, score)
-        score_records.append(score)
-        print(
-            f"  score={score['passed']}/{score['total']} "
-            f"success={score['success']} steps={len(trajectory.steps)}",
-            flush=True,
-        )
+    max_workers = max(1, args.concurrency)
+    if pending:
+        print(f"Running {len(pending)} rollout(s) with concurrency={max_workers}", flush=True)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                run_one_task,
+                index=index,
+                total=len(tasks),
+                task=task,
+                skills=skills,
+                skills_path=args.skills,
+                model=args.model,
+                max_steps=args.max_steps,
+                benchmark=benchmark,
+                trajectories_dir=trajectories_dir,
+                output_dir=output_dir,
+                python=args.python,
+            ): (index, task)
+            for index, task in pending
+        }
+        for future in concurrent.futures.as_completed(futures):
+            index, task = futures[future]
+            try:
+                score = future.result()
+            except Exception as exc:
+                score = failure_record(task, exc)
+            score_records.append(score)
+            print(
+                f"[{index}/{len(tasks)}] done {task['id']} "
+                f"score={score['passed']}/{score['total']} "
+                f"success={score['success']} steps={score.get('trajectory_steps', 0)}",
+                flush=True,
+            )
 
     summary = summarize(score_records)
     summary.update({
@@ -114,9 +115,77 @@ def main() -> int:
         "output_dir": str(output_dir),
         "n_tasks": len(tasks),
     })
+    score_records.sort(key=lambda record: record.get("task_id", ""))
+    scores_path.write_text(
+        "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in score_records),
+        encoding="utf-8",
+    )
     summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0 if summary.get("failed", 0) == 0 else 1
+
+
+def run_one_task(
+    *,
+    index: int,
+    total: int,
+    task: dict[str, Any],
+    skills: list[str] | dict[str, list[str]],
+    skills_path: str,
+    model: str,
+    max_steps: int,
+    benchmark: Path,
+    trajectories_dir: Path,
+    output_dir: Path,
+    python: str,
+) -> dict[str, Any]:
+    print(f"[{index}/{total}] rollout {task['id']}", flush=True)
+    generator = TrajectoryGenerator(
+        skills_path,
+        model=model,
+        max_steps=max_steps,
+        dry_run=False,
+    )
+    task_skills = generator._skills_for_task(task, skills)
+    trajectory = generator.run_task(task, task_skills)
+
+    trajectory_path = trajectories_dir / f"{task['id']}.jsonl"
+    trajectory_path.parent.mkdir(parents=True, exist_ok=True)
+    trajectory_path.write_text(
+        json.dumps(trajectory.to_record(), ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    score = score_task(
+        benchmark=benchmark,
+        task=task,
+        artifact_dir=Path(task["artifact_dir"]),
+        python=python,
+        output_dir=output_dir,
+    )
+    score["trajectory_path"] = str(trajectory_path)
+    score["skills_used"] = task_skills
+    score["trajectory_final_success"] = trajectory.final_success
+    score["trajectory_steps"] = len(trajectory.steps)
+    score["trajectory_error_count"] = len(trajectory.error_log)
+
+    score_path = output_dir / "scores" / f"{task['id']}.json"
+    score_path.parent.mkdir(parents=True, exist_ok=True)
+    score_path.write_text(json.dumps(score, indent=2, ensure_ascii=False), encoding="utf-8")
+    return score
+
+
+def failure_record(task: dict[str, Any], exc: Exception) -> dict[str, Any]:
+    return {
+        "task_id": task["id"],
+        "domain": task.get("domain", "unknown"),
+        "success": False,
+        "passed": 0,
+        "failed": 1,
+        "total": 1,
+        "reason": f"{exc.__class__.__name__}: {exc}",
+        "artifact_dir": task.get("artifact_dir", ""),
+    }
 
 
 def score_task(
@@ -199,11 +268,6 @@ def parse_pytest_summary(output: str) -> tuple[int, int]:
     if "no tests ran" in output:
         return 0, 0
     return 0, 1
-
-
-def append_jsonl(path: Path, record: dict[str, Any]) -> None:
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:

@@ -58,6 +58,7 @@ After downloading SkillLearnBench into `data/skilllearnbench_upstream`, run all
   --output-dir results/skilllearnbench_rollouts \
   --artifact-root /tmp/offskillevo_skilllearnbench_artifacts \
   --python /home/admin/OSkill/.venv-skilllearnbench/bin/python \
+  --concurrency 4 \
   --resume
 ```
 
