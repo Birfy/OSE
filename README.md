@@ -54,6 +54,14 @@ After downloading SkillLearnBench into `data/skilllearnbench_upstream`, run all
 ```bash
 python3.11 -m venv .venv-skilllearnbench
 /home/admin/OSkill/.venv-skilllearnbench/bin/python -m pip install -r requirements.txt -r requirements-skilllearnbench.txt
+/home/admin/OSkill/.venv-skilllearnbench/bin/python -m playwright install chromium
+```
+
+On RHEL-like systems, install Chromium runtime libraries if Playwright browser
+tests fail to launch:
+
+```bash
+sudo dnf install -y libX11 libXcomposite libXdamage libXext libXfixes libXrandr libxcb alsa-lib atk at-spi2-atk at-spi2-core mesa-libgbm
 ```
 
 ```bash

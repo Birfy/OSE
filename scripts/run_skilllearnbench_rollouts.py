@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -213,10 +214,13 @@ def score_task(
     patched_dir = output_dir / "patched_tests"
     patched_dir.mkdir(parents=True, exist_ok=True)
     patched_test = patched_dir / f"{task['id']}_test_outputs.py"
-    patched_test.write_text(
-        patch_test_paths(test_path.read_text(encoding="utf-8"), artifact_dir),
-        encoding="utf-8",
+    patched_source = patch_test_paths(test_path.read_text(encoding="utf-8"), artifact_dir)
+    patched_source = patch_verifier_environment(
+        patched_source,
+        verifier_dir=output_dir / "verifier_logs" / task["id"],
+        task_id=task["id"],
     )
+    patched_test.write_text(patched_source, encoding="utf-8")
 
     junit_path = output_dir / "junit" / f"{task['id']}.xml"
     junit_path.parent.mkdir(parents=True, exist_ok=True)
@@ -255,6 +259,18 @@ def patch_test_paths(source: str, artifact_dir: Path) -> str:
         return f"{quote}{artifact_dir / Path(root_path).name}{quote}"
 
     return ROOT_PATH_RE.sub(repl, source)
+
+
+def patch_verifier_environment(source: str, *, verifier_dir: Path, task_id: str) -> str:
+    verifier_dir.mkdir(parents=True, exist_ok=True)
+    quoted_dir = json.dumps(str(verifier_dir))
+    source = re.sub(
+        r'(?P<quote>["\'])/logs/verifier(?P=quote)',
+        quoted_dir,
+        source,
+    )
+    port = 20000 + (zlib.crc32(task_id.encode("utf-8")) % 20000)
+    return re.sub(r"(?m)^PORT\s*=\s*8765\b", f"PORT = {port}", source)
 
 
 def parse_pytest_summary(output: str) -> tuple[int, int]:
