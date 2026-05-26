@@ -1,10 +1,12 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-*/
 .env
 .env.*
 .repo-git/
 .ssh/
 results/*.json
 data/trajectories/*.jsonl
+data/skilllearnbench_upstream/
 skills/*/SKILL.v*.md
