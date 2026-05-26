@@ -270,7 +270,11 @@ def patch_verifier_environment(source: str, *, verifier_dir: Path, task_id: str)
         source,
     )
     port = 20000 + (zlib.crc32(task_id.encode("utf-8")) % 20000)
-    return re.sub(r"(?m)^PORT\s*=\s*8765\b", f"PORT = {port}", source)
+    return re.sub(
+        r"(?m)^(?P<indent>\s*)PORT\s*=\s*8765\b",
+        rf"\g<indent>PORT = {port}",
+        source,
+    )
 
 
 def parse_pytest_summary(output: str) -> tuple[int, int]:
