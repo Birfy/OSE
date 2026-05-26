@@ -1,0 +1,9 @@
+[
+  {
+    "id": "sample_data_001",
+    "description": "Analyze a small table of quarterly sales and identify the strongest region.",
+    "domain": "analytics",
+    "expected_keywords": ["sales", "region"]
+  }
+]
+

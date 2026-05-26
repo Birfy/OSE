@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+.repo-git/
+.ssh/
+results/*.json
+data/trajectories/*.jsonl
+skills/*/SKILL.v*.md
