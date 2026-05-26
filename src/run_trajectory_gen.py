@@ -9,10 +9,20 @@ from .llm import DEFAULT_MODEL
 from .trajectory_generator import TrajectoryGenerator
 
 
-def discover_skills(skill_dir: Path, no_skill: bool) -> list[str]:
+def discover_skills(skill_dir: Path, no_skill: bool) -> list[str] | dict[str, list[str]]:
     if no_skill or not skill_dir.exists():
         return []
-    return sorted(path.parent.name for path in skill_dir.glob("*/SKILL.md"))
+
+    flat_skills = sorted(path.parent.name for path in skill_dir.glob("*/SKILL.md"))
+    if flat_skills:
+        return flat_skills
+
+    task_scoped: dict[str, list[str]] = {}
+    for skill_file in sorted(skill_dir.glob("*/*/SKILL.md")):
+        domain = skill_file.parent.parent.name
+        skill_name = skill_file.parent.name
+        task_scoped.setdefault(domain, []).append(skill_name)
+    return task_scoped
 
 
 def load_tasks(path: Path) -> list[dict[str, Any]]:

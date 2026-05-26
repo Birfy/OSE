@@ -108,6 +108,49 @@ class CodexAgentClient:
             text = proc.stdout.strip()
         return LLMResponse(text=text.strip(), raw={"stdout": proc.stdout, "stderr": proc.stderr})
 
+    def run_agent(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        json_mode: bool = False,
+    ) -> list[dict[str, Any]]:
+        full_prompt = self._build_prompt(prompt, system=system, json_mode=json_mode)
+        cmd = [
+            self._resolve_codex_bin(),
+            "exec",
+            "--disable",
+            "tool_search",
+            "--disable",
+            "tool_suggest",
+            "--disable",
+            "multi_agent",
+            "--ephemeral",
+            "--model",
+            self.model,
+            "--sandbox",
+            self.sandbox,
+            "--skip-git-repo-check",
+            "--json",
+            "--cd",
+            self.cwd,
+            "-",
+        ]
+        proc = subprocess.run(
+            cmd,
+            input=full_prompt,
+            text=True,
+            capture_output=True,
+            timeout=self.timeout_seconds,
+            check=False,
+        )
+        if proc.returncode != 0:
+            raise CodexAgentError(
+                "Codex agent failed with exit code "
+                f"{proc.returncode}.\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+            )
+        return self._parse_jsonl_events(proc.stdout)
+
     def _build_prompt(self, prompt: str, *, system: str | None, json_mode: bool) -> str:
         parts = [
             "You are running as a Codex agent subtask for the OffSkillEvo project.",
@@ -135,6 +178,18 @@ class CodexAgentClient:
                 return f.read()
         except FileNotFoundError:
             return ""
+
+    def _parse_jsonl_events(self, text: str) -> list[dict[str, Any]]:
+        events: list[dict[str, Any]] = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                events.append({"type": "raw", "text": line})
+        return events
 
 
 # Backward-compatible name used by the rest of the codebase.
