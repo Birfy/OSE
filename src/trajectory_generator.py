@@ -96,6 +96,9 @@ class TrajectoryGenerator:
 - Follow the skill procedures when applicable.
 - Record concrete actions, not hidden reasoning.
 - If a skill's trigger condition matches, use it explicitly.
+- For SkillLearnBench tasks, write every required artifact to the writable artifact directory named in the task.
+- After writing artifacts, inspect the task verifier under the task's `tests/` directory and run an appropriate local check when possible.
+- Do not claim completion based only on drafting text; completion requires files to exist at the required artifact paths.
 - Report failures with specific error details.
 """
 
@@ -114,7 +117,7 @@ class TrajectoryGenerator:
         rollout_prompt = f"""{task["description"]}
 
 Run the task as a Codex agent and produce a complete trajectory.
-Use up to {self.max_steps} meaningful actions. Inspect files and run commands when useful.
+Use up to {self.max_steps} meaningful actions. Inspect files, write the required artifacts, and run commands when useful.
 Stop when the task is complete or when you cannot make further progress.
 """
         try:

@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -226,7 +227,9 @@ def score_task(
         timeout=300,
         check=False,
     )
-    total, failures = parse_pytest_summary(proc.stdout + "\n" + proc.stderr)
+    total, failures = parse_junit_counts(junit_path)
+    if total is None or failures is None:
+        total, failures = parse_pytest_summary(proc.stdout + "\n" + proc.stderr)
     passed = max(total - failures, 0)
     return {
         "task_id": task["id"],
@@ -255,9 +258,21 @@ def patch_test_paths(source: str, artifact_dir: Path) -> str:
 
 
 def parse_pytest_summary(output: str) -> tuple[int, int]:
+    summary_lines = []
+    for line in output.splitlines():
+        stripped = line.strip().strip("=")
+        if " in " not in stripped:
+            continue
+        if re.search(r"\b\d+\s+(passed|failed|error|errors)\b", stripped):
+            summary_lines.append(stripped)
+    if summary_lines:
+        output = summary_lines[-1]
+    else:
+        output = ""
+
     failed = 0
     passed = 0
-    for count, word in re.findall(r"(\d+)\s+(passed|failed|error|errors|skipped)", output):
+    for count, word in re.findall(r"(\d+)\s+(passed|failed|error|errors)\b", output):
         n = int(count)
         if word == "passed":
             passed += n
@@ -268,6 +283,27 @@ def parse_pytest_summary(output: str) -> tuple[int, int]:
     if "no tests ran" in output:
         return 0, 0
     return 0, 1
+
+
+def parse_junit_counts(junit_path: Path) -> tuple[int | None, int | None]:
+    if not junit_path.exists():
+        return None, None
+    try:
+        root = ET.parse(junit_path).getroot()
+    except ET.ParseError:
+        return None, None
+
+    suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
+    if not suites:
+        return None, None
+
+    total = 0
+    failures = 0
+    for suite in suites:
+        total += int(suite.attrib.get("tests", 0))
+        failures += int(suite.attrib.get("failures", 0))
+        failures += int(suite.attrib.get("errors", 0))
+    return total, failures
 
 
 def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
