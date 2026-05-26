@@ -25,9 +25,12 @@ def discover_skills(skill_dir: Path, no_skill: bool) -> list[str] | dict[str, li
     return task_scoped
 
 
-def load_tasks(path: Path) -> list[dict[str, Any]]:
+DEFAULT_ARTIFACT_ROOT = Path("/tmp/offskillevo_artifacts")
+
+
+def load_tasks(path: Path, artifact_root: Path = DEFAULT_ARTIFACT_ROOT) -> list[dict[str, Any]]:
     if path.is_dir():
-        return load_skilllearnbench_tasks(path)
+        return load_skilllearnbench_tasks(path, artifact_root)
 
     data = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(data, dict) and "tasks" in data:
@@ -37,7 +40,9 @@ def load_tasks(path: Path) -> list[dict[str, Any]]:
     raise ValueError(f"Unsupported task file format: {path}")
 
 
-def load_skilllearnbench_tasks(path: Path) -> list[dict[str, Any]]:
+def load_skilllearnbench_tasks(
+    path: Path, artifact_root: Path = DEFAULT_ARTIFACT_ROOT
+) -> list[dict[str, Any]]:
     """
     Load upstream SkillLearnBench task folders.
 
@@ -52,19 +57,24 @@ def load_skilllearnbench_tasks(path: Path) -> list[dict[str, Any]]:
         task_name = instance_dir.parent.name
         instance_id = instance_dir.name
         description = instruction.read_text(encoding="utf-8").strip()
+        task_artifact_dir = artifact_root / instance_id
+        rewritten_description = description.replace("/root/", f"{task_artifact_dir}/")
         records.append(
             {
                 "id": instance_id,
-                "task_description": description,
+                "task_description": rewritten_description,
                 "description": (
-                    f"{description}\n\n"
+                    f"{rewritten_description}\n\n"
                     f"SkillLearnBench instance path: {instance_dir}\n"
-                    "Generate the next agent action for this task; do not assume hidden files "
-                    "outside the instance path."
+                    f"Writable artifact directory: {task_artifact_dir}\n"
+                    "The original benchmark may mention /root paths; in this local rollout, "
+                    f"write those required artifacts under {task_artifact_dir} instead. "
+                    "Do not assume hidden files outside the instance path."
                 ),
                 "domain": task_name,
                 "benchmark": "SkillLearnBench",
                 "task_path": str(instance_dir),
+                "artifact_dir": str(task_artifact_dir),
             }
         )
     if not records:
@@ -80,11 +90,12 @@ def main() -> None:
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--max-steps", type=int, default=20)
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--artifact-root", default=str(DEFAULT_ARTIFACT_ROOT))
     parser.add_argument("--no-skill", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    tasks = load_tasks(Path(args.tasks))
+    tasks = load_tasks(Path(args.tasks), Path(args.artifact_root))
     if args.limit is not None:
         tasks = tasks[: args.limit]
     skills = discover_skills(Path(args.skills), args.no_skill)

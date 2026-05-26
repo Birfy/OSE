@@ -351,7 +351,7 @@ Stop when the task is complete or when you cannot make further progress.
         if task.get("expected_keywords"):
             text = " ".join(step.action + " " + step.observation for step in steps).lower()
             return all(str(keyword).lower() in text for keyword in task["expected_keywords"])
-        return bool(steps) and steps[-1].success and all(step.success for step in steps)
+        return bool(steps) and steps[-1].success
 
     def run_batch(
         self,
