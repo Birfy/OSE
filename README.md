@@ -52,6 +52,11 @@ After downloading SkillLearnBench into `data/skilllearnbench_upstream`, run all
 100 instances with task-scoped human-authored skills and score each instance:
 
 ```bash
+python3.11 -m venv .venv-skilllearnbench
+/home/admin/OSkill/.venv-skilllearnbench/bin/python -m pip install -r requirements.txt -r requirements-skilllearnbench.txt
+```
+
+```bash
 /home/admin/OSkill/.venv-skilllearnbench/bin/python scripts/run_skilllearnbench_rollouts.py \
   --benchmark data/skilllearnbench_upstream \
   --skills data/skilllearnbench_upstream/skills/human_authored \
