@@ -7,6 +7,7 @@ __pycache__/
 .repo-git/
 .ssh/
 results/*.json
+results/skilllearnbench_rollouts*/
 data/trajectories/*.jsonl
 data/skilllearnbench_upstream/
 skills/*/SKILL.v*.md
