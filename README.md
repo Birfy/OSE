@@ -2,6 +2,10 @@
 
 Offline Skill Self-Evolution prototype based on `plan.md`.
 
+All model-backed work is delegated to the Codex agent runtime through
+`codex exec`. This includes trajectory generation, skill proposal generation,
+offline action regeneration/scoring, and trajectory-alignment evaluation.
+
 The project has three stages:
 
 1. Generate skill-augmented trajectories.
@@ -14,8 +18,11 @@ The project has three stages:
 python3.11 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
-export ANTHROPIC_API_KEY=your_key_here
+codex login
 ```
+
+The default Codex agent model is `gpt-5.4-nano`. Override it with each CLI's
+`--model` flag when needed.
 
 ## Commands
 
@@ -38,4 +45,3 @@ python -m src.run_evaluation \
 ```
 
 Use `--dry-run` on trajectory generation when you want deterministic local sample trajectories without API calls.
-
