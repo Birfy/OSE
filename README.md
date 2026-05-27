@@ -62,6 +62,7 @@ tests fail to launch:
 
 ```bash
 sudo dnf install -y libX11 libXcomposite libXdamage libXext libXfixes libXrandr libxcb alsa-lib atk at-spi2-atk at-spi2-core mesa-libgbm
+sudo dnf install -y poppler-utils
 ```
 
 ```bash

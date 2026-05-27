@@ -5,6 +5,7 @@ import concurrent.futures
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -22,6 +23,7 @@ from src.trajectory_generator import TrajectoryGenerator
 
 
 ROOT_PATH_RE = re.compile(r'(?P<quote>["\'])(/root/[^"\']+)(?P=quote)')
+APP_PATH_RE = re.compile(r'(?P<quote>["\'])(/app/[^"\']+)(?P=quote)')
 
 
 def main() -> int:
@@ -211,10 +213,16 @@ def score_task(
             "artifact_dir": str(artifact_dir),
         }
 
-    patched_dir = output_dir / "patched_tests"
+    patched_dir = output_dir / "patched_tests" / task["id"]
     patched_dir.mkdir(parents=True, exist_ok=True)
-    patched_test = patched_dir / f"{task['id']}_test_outputs.py"
-    patched_source = patch_test_paths(test_path.read_text(encoding="utf-8"), artifact_dir)
+    copy_test_support_files(test_path.parent, patched_dir)
+    patched_test = patched_dir / "test_outputs.py"
+    task_dir = benchmark / "tasks" / task["domain"] / task["id"]
+    patched_source = patch_test_paths(
+        test_path.read_text(encoding="utf-8"),
+        artifact_dir=artifact_dir,
+        task_dir=task_dir,
+    )
     patched_source = patch_verifier_environment(
         patched_source,
         verifier_dir=output_dir / "verifier_logs" / task["id"],
@@ -252,13 +260,42 @@ def score_task(
     }
 
 
-def patch_test_paths(source: str, artifact_dir: Path) -> str:
-    def repl(match: re.Match[str]) -> str:
+def patch_test_paths(source: str, *, artifact_dir: Path, task_dir: Path) -> str:
+    def repl_root(match: re.Match[str]) -> str:
         quote = match.group("quote")
         root_path = match.group(2)
-        return f"{quote}{artifact_dir / Path(root_path).name}{quote}"
+        artifact_path = artifact_dir / Path(root_path).name
+        environment_path = task_dir / "environment" / Path(root_path).name
+        rewritten = environment_path if not artifact_path.exists() and environment_path.exists() else artifact_path
+        return f"{quote}{rewritten}{quote}"
 
-    return ROOT_PATH_RE.sub(repl, source)
+    def repl_app(match: re.Match[str]) -> str:
+        quote = match.group("quote")
+        app_path = Path(match.group(2))
+        parts = app_path.parts
+        if len(parts) >= 3 and parts[2] == "data":
+            rewritten = task_dir / "environment" / Path(*parts[2:])
+        else:
+            rewritten = artifact_dir / app_path.name
+        return f"{quote}{rewritten}{quote}"
+
+    source = ROOT_PATH_RE.sub(repl_root, source)
+    return APP_PATH_RE.sub(repl_app, source)
+
+
+def copy_test_support_files(source_dir: Path, patched_dir: Path) -> None:
+    for source_path in source_dir.iterdir():
+        if source_path.name == "__pycache__":
+            continue
+        if source_path.name == "test_outputs.py":
+            continue
+        target_path = patched_dir / source_path.name
+        if source_path.is_dir():
+            if target_path.exists():
+                shutil.rmtree(target_path)
+            shutil.copytree(source_path, target_path)
+        elif source_path.is_file():
+            shutil.copy2(source_path, target_path)
 
 
 def patch_verifier_environment(source: str, *, verifier_dir: Path, task_id: str) -> str:
